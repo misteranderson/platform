@@ -4,17 +4,18 @@
 package api
 
 import (
+	"net/http"
+	"strings"
+	"time"
+
 	l4g "github.com/alecthomas/log4go"
-	"github.com/braintree/manners"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/mattermost/platform/store"
 	"github.com/mattermost/platform/utils"
+	"github.com/tylerb/graceful"
 	"gopkg.in/throttled/throttled.v1"
 	throttledStore "gopkg.in/throttled/throttled.v1/store"
-	"net/http"
-	"strings"
-	"time"
 )
 
 type Server struct {
@@ -73,20 +74,34 @@ func StartServer() {
 		handler = th.Throttle(&CorsWrapper{Srv.Router})
 	}
 
-	go func() {
-		err := manners.ListenAndServe(utils.Cfg.ServiceSettings.ListenAddress, handlers.RecoveryHandler(handlers.PrintRecoveryStack(true))(handler))
+	srv := &graceful.Server{
+		Timeout: 5 * time.Second,
+		Server: &http.Server{
+			Addr:    utils.Cfg.ServiceSettings.ListenAddress,
+			Handler: handlers.RecoveryHandler(handlers.PrintRecoveryStack(true))(handler),
+		},
+	}
+
+	srv.ListenAndServeTLS(*utils.Cfg.ServiceSettings.TLSCertFile, *utils.Cfg.ServiceSettings.TLSKeyFile)
+
+	/*go func() {
+		var err error
+		if *utils.Cfg.ServiceSettings.ConnectionSecurity == model.CONN_SECURITY_TLS {
+			err = manners.ListenAndServeTLS(utils.Cfg.ServiceSettings.ListenAddress, *utils.Cfg.ServiceSettings.TLSCertFile, *utils.Cfg.ServiceSettings.TLSKeyFile, handlers.RecoveryHandler(handlers.PrintRecoveryStack(true))(handler))
+		} else {
+			err = manners.ListenAndServe(utils.Cfg.ServiceSettings.ListenAddress, handlers.RecoveryHandler(handlers.PrintRecoveryStack(true))(handler))
+		}
 		if err != nil {
 			l4g.Critical(utils.T("api.server.start_server.starting.critical"), err)
 			time.Sleep(time.Second)
 		}
-	}()
+	}()*/
 }
 
 func StopServer() {
 
 	l4g.Info(utils.T("api.server.stop_server.stopping.info"))
 
-	manners.Close()
 	Srv.Store.Close()
 	hub.Stop()
 
